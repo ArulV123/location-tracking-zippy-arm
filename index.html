@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Zippy — Find My Arm</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+<style>
+:root{
+  --paper:#faf9f6;
+  --panel:#f0ece2;
+  --ink:#15181b;
+  --ink-dim:#5b5f63;
+  --rust:#c14a2e;
+  --rust-dim:#a53f27;
+  --line:#d8d2c2;
+  --line-strong:#b8b09a;
+  --green:#1f8b4c;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Inter',sans-serif;
+  overflow:hidden;
+}
+::selection{background:var(--rust);color:var(--paper);}
+button{font:inherit;}
+
+.page{
+  width:100%;
+  height:100%;
+  display:flex;
+  flex-direction:column;
+  background:var(--paper);
+}
+
+.head{
+  position:relative;
+  z-index:20;
+  flex:0 0 auto;
+  padding:18px 24px 0;
+  border-bottom:1px solid var(--line);
+  background:var(--paper);
+}
+
+.head-row{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-height:42px;
+  margin-bottom:16px;
+}
+
+.brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-width:0;
+}
+
+.z-badge{
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  background:var(--ink);
+  color:var(--paper);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-family:'Space Grotesk',sans-serif;
+  font-weight:700;
+  font-size:15px;
+  flex-shrink:0;
+}
+
+.brand-copy h1{
+  font-family:'Space Grotesk',sans-serif;
+  font-weight:600;
+  font-size:16px;
+  color:var(--ink);
+}
+
+.brand-copy span{
+  display:block;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:10.5px;
+  color:var(--green);
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  margin-top:2px;
+}
+
+.user-chip{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-left:auto;
+  min-width:0;
+  padding:5px 12px 5px 6px;
+  border:1px solid var(--line);
+  background:#fff;
+}
+
+.user-avatar{
+  width:30px;
+  height:30px;
+  border-radius:50%;
+  overflow:hidden;
+  background:var(--rust);
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-family:'Space Grotesk',sans-serif;
+  font-weight:600;
+  font-size:13px;
+  flex-shrink:0;
+}
+
+.user-avatar img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+
+.user-text{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+}
+
+.user-text b{
+  font-family:'Space Grotesk',sans-serif;
+  font-size:13px;
+  color:var(--ink);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:220px;
+}
+
+.user-text small{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:9.5px;
+  color:var(--ink-dim);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:220px;
+}
+
+.back-btn{
+  position:relative;
+  z-index:10;
+  cursor:pointer;
+  border:1px solid var(--line-strong);
+  background:none;
+  color:var(--ink);
+  height:34px;
+  padding:0 13px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  flex-shrink:0;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:10.5px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  transition:all .2s;
+}
+
+.back-btn:hover{
+  border-color:var(--ink);
+  background:var(--panel);
+}
+
+.content{
+  position:relative;
+  flex:1;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+.map-wrap{
+  position:relative;
+  flex:1;
+  min-height:0;
+}
+
+#map{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  background:var(--panel);
+}
+
+.map-overlay-top{
+  position:absolute;
+  z-index:900;
+  top:18px;
+  left:18px;
+  right:18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+  pointer-events:none;
+}
+
+.map-title-card,
+.proximity-card{
+  border:1px solid var(--line);
+  background:rgba(250,249,246,.96);
+  box-shadow:0 12px 28px -24px rgba(21,24,27,.55);
+  backdrop-filter:blur(6px);
+  pointer-events:auto;
+}
+
+.map-title-card{
+  padding:13px 15px;
+  max-width:390px;
+}
+
+.map-title-card .eyebrow,
+.proximity-card .eyebrow{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:9px;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+  color:var(--rust);
+}
+
+.map-title-card h2{
+  font-family:'Space Grotesk',sans-serif;
+  font-size:21px;
+  font-weight:600;
+  line-height:1.1;
+  margin-top:4px;
+}
+
+.map-title-card p{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:10.5px;
+  line-height:1.55;
+  color:var(--ink-dim);
+  margin-top:6px;
+}
+
+.proximity-card{
+  min-width:190px;
+  padding:12px 14px;
+}
+
+.proximity-main{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  margin-top:5px;
+}
+
+.proximity-dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 0 4px rgba(31,139,76,.10);
+  flex-shrink:0;
+}
+
+.proximity-main strong{
+  font-family:'Space Grotesk',sans-serif;
+  font-size:15px;
+  font-weight:600;
+}
+
+.proximity-distance{
+  margin-top:4px;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:9.5px;
+  color:var(--ink-dim);
+  text-transform:uppercase;
+  letter-spacing:.05em;
+}
+
+.bottom-bar{
+  position:absolute;
+  z-index:900;
+  left:18px;
+  right:18px;
+  bottom:18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:12px;
+  pointer-events:none;
+}
+
+.info-strip{
+  max-width:560px;
+  border:1px solid var(--line);
+  background:rgba(250,249,246,.96);
+  padding:11px 14px;
+  pointer-events:auto;
+}
+
+.info-strip strong{
+  font-family:'Space Grotesk',sans-serif;
+  font-size:12.5px;
+  font-weight:600;
+}
+
+.info-strip span{
+  margin-left:8px;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:9.5px;
+  color:var(--ink-dim);
+}
+
+.locate-btn{
+  pointer-events:auto;
+  border:1px solid var(--ink);
+  background:var(--ink);
+  color:var(--paper);
+  height:40px;
+  padding:0 15px;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:10px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  transition:all .2s;
+  flex-shrink:0;
+}
+
+.locate-btn:hover{
+  background:var(--rust);
+  border-color:var(--rust);
+}
+
+.loading-screen{
+  position:fixed;
+  inset:0;
+  z-index:5000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:rgba(250,249,246,.985);
+  transition:opacity .45s ease, visibility .45s ease;
+}
+
+.loading-screen.hidden{
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+}
+
+.loader-box{
+  width:min(470px,92vw);
+  border:1px solid var(--line);
+  background:var(--paper);
+  padding:26px;
+}
+
+.loader-top{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.loader-z{
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  background:var(--ink);
+  color:var(--paper);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-family:'Space Grotesk',sans-serif;
+  font-weight:700;
+  font-size:15px;
+}
+
+.loader-copy b{
+  display:block;
+  font-family:'Space Grotesk',sans-serif;
+  font-size:15px;
+  font-weight:600;
+}
+
+.loader-copy span{
+  display:block;
+  margin-top:3px;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:9.5px;
+  color:var(--green);
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.loader-text{
+  margin-top:24px;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:11px;
+  line-height:1.7;
+  color:var(--ink-dim);
+}
+
+.loader-text strong{color:var(--ink);}
+
+.loader-track{
+  width:100%;
+  height:4px;
+  margin-top:17px;
+  background:var(--line);
+  overflow:hidden;
+}
+
+.loader-bar{
+  width:0%;
+  height:100%;
+  background:var(--rust);
+  transition:width .35s ease;
+}
+
+.loader-percent{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  margin-top:8px;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:9px;
+  color:var(--ink-dim);
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+
+.error-card{
+  position:fixed;
+  inset:0;
+  z-index:5100;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:rgba(250,249,246,.97);
+}
+
+.error-card.show{display:flex;}
+
+.error-inner{
+  width:min(520px,92vw);
+  border:1px solid var(--rust);
+  background:var(--paper);
+  padding:26px;
+}
+
+.error-kicker{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:9.5px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--rust);
+}
+
+.error-inner h2{
+  font-family:'Space Grotesk',sans-serif;
+  font-size:22px;
+  font-weight:600;
+  margin-top:6px;
+}
+
+.error-inner p{
+  margin-top:9px;
+  color:var(--ink-dim);
+  font-family:'IBM Plex Mono',monospace;
+  font-size:10.5px;
+  line-height:1.7;
+}
+
+.error-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:18px;
+}
+
+.error-actions button{
+  border:1px solid var(--ink);
+  background:var(--ink);
+  color:var(--paper);
+  padding:11px 15px;
+  cursor:pointer;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:10.5px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+
+.error-actions button.secondary{
+  background:none;
+  color:var(--ink);
+  border-color:var(--line-strong);
+}
+
+.zippy-marker{
+  width:48px;
+  height:48px;
+  border-radius:50%;
+  border:2px solid var(--paper);
+  background:var(--rust);
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:24px;
+  box-shadow:0 8px 20px rgba(21,24,27,.25);
+  position:relative;
+}
+
+.zippy-marker::after{
+  content:'';
+  position:absolute;
+  inset:-6px;
+  border:1px solid rgba(193,74,46,.28);
+  border-radius:50%;
+  animation:armPulse 1.8s ease-out infinite;
+}
+
+@keyframes armPulse{
+  0%{transform:scale(.75);opacity:.8;}
+  100%{transform:scale(1.55);opacity:0;}
+}
+
+.you-marker{
+  width:18px;
+  height:18px;
+  border-radius:50%;
+  background:var(--ink);
+  border:3px solid var(--paper);
+  box-shadow:0 5px 14px rgba(21,24,27,.25);
+  position:relative;
+}
+
+.you-marker::after{
+  content:'';
+  position:absolute;
+  inset:-9px;
+  border:1px solid rgba(21,24,27,.22);
+  border-radius:50%;
+}
+
+.leaflet-control-zoom{
+  border:1px solid var(--line) !important;
+  box-shadow:none !important;
+}
+
+.leaflet-control-zoom a{
+  background:var(--paper) !important;
+  color:var(--ink) !important;
+  border-bottom-color:var(--line) !important;
+}
+
+.leaflet-control-attribution{
+  background:rgba(250,249,246,.85) !important;
+  color:var(--ink-dim) !important;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:8px;
+}
+
+.arm-tooltip{
+  background:var(--ink);
+  color:var(--paper);
+  border:0;
+  border-radius:0;
+  padding:6px 9px;
+  box-shadow:none;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:9px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+
+.you-tooltip{
+  background:var(--paper);
+  color:var(--ink);
+  border:1px solid var(--line);
+  border-radius:0;
+  padding:5px 8px;
+  box-shadow:none;
+  font-family:'IBM Plex Mono',monospace;
+  font-size:9px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+
+@media (max-width:760px){
+  body{overflow:hidden;}
+  .head{padding:15px 16px 0;}
+  .head-row{
+    flex-wrap:wrap;
+    margin-bottom:11px;
+  }
+  .brand{
+    flex:1 1 auto;
+    min-width:170px;
+  }
+  .user-chip{
+    order:3;
+    width:100%;
+    margin-left:0;
+  }
+  .user-text b{max-width:180px;}
+  .back-btn{order:2;}
+  .map-overlay-top{
+    top:12px;
+    left:12px;
+    right:12px;
+    flex-direction:column;
+  }
+  .proximity-card{
+    min-width:0;
+    align-self:flex-end;
+  }
+  .map-title-card{
+    max-width:calc(100vw - 24px);
+  }
+  .map-title-card h2{font-size:18px;}
+  .bottom-bar{
+    left:12px;
+    right:12px;
+    bottom:12px;
+    flex-direction:column;
+    align-items:stretch;
+  }
+  .info-strip{max-width:none;}
+  .info-strip span{
+    display:block;
+    margin:4px 0 0;
+  }
+  .locate-btn{
+    width:100%;
+    justify-content:center;
+  }
+  .loader-box{padding:21px;}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important;}
+}
+</style>
+</head>
+
+<body>
+<div class="page">
+
+  <header class="head">
+    <div class="head-row">
+      <div class="brand">
+        <div class="z-badge">Z</div>
+        <div class="brand-copy">
+          <h1>Find My Zippy</h1>
+          <span id="pageState">● Locating device</span>
+        </div>
+      </div>
+
+      <div class="user-chip" id="userChip">
+        <div class="user-avatar" id="userAvatar">?</div>
+        <div class="user-text">
+          <b id="userName">Not signed in</b>
+          <small id="userEmail">Sign in on the main page</small>
+        </div>
+      </div>
+
+      <button class="back-btn" id="backBtn" type="button" aria-label="Back to main page">
+        <span aria-hidden="true">←</span>
+        <span>Back</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="content">
+    <div class="map-wrap">
+      <div id="map" aria-label="Map showing the device and nearby Zippy bionic arm"></div>
+
+      <div class="map-overlay-top">
+        <div class="map-title-card">
+          <div class="eyebrow">Device locator</div>
+          <h2>Zippy is nearby.</h2>
+          <p>Your current device is shown with a dark marker. The hand marker represents the nearby Zippy bionic arm.</p>
+        </div>
+
+        <div class="proximity-card">
+          <div class="eyebrow">Proximity</div>
+          <div class="proximity-main">
+            <span class="proximity-dot"></span>
+            <strong id="proximityState">Nearby</strong>
+          </div>
+          <div class="proximity-distance" id="proximityDistance">Waiting for location…</div>
+        </div>
+      </div>
+
+      <div class="bottom-bar">
+        <div class="info-strip">
+          <strong>Current device</strong>
+          <span id="locationText">Getting your location…</span>
+        </div>
+        <button class="locate-btn" id="recenterBtn" type="button">
+          <span aria-hidden="true">⌖</span>
+          <span>Recenter</span>
+        </button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="loading-screen" id="loadingScreen">
+  <div class="loader-box">
+    <div class="loader-top">
+      <div class="loader-z">Z</div>
+      <div class="loader-copy">
+        <b>Locating your device</b>
+        <span>Find My Zippy</span>
+      </div>
+    </div>
+    <div class="loader-text" id="loadingText">
+      Requesting your current position so Zippy can be placed <strong>nearby</strong>.
+    </div>
+    <div class="loader-track">
+      <div class="loader-bar" id="loaderBar"></div>
+    </div>
+    <div class="loader-percent">
+      <span id="loaderStage">Getting GPS position</span>
+      <span id="loaderPercent">0%</span>
+    </div>
+  </div>
+</div>
+
+<div class="error-card" id="errorCard" role="dialog" aria-modal="true" aria-labelledby="errorTitle">
+  <div class="error-inner">
+    <div class="error-kicker">Location unavailable</div>
+    <h2 id="errorTitle">We could not get this device location.</h2>
+    <p id="errorMessage">
+      Please allow location access in your browser and try again.
+    </p>
+    <div class="error-actions">
+      <button type="button" id="retryBtn">Try again</button>
+      <button type="button" class="secondary" id="errorBackBtn">Back to main page</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+/* ================================
+   Zippy Find My Arm
+   ================================ */
+
+const MAIN_PAGE_URL = 'https://arulv123.github.io/Zippy-start-and-main-page./';
+
+/* Same Firebase client configuration used by the reference Zippy page.
+   This is the public web-client configuration needed by Firebase Auth;
+   no password or private credential is stored here. */
+const firebaseConfig = {
+  apiKey: "AIzaSyBTCit215onnSyWXjDXRXU1tVsVmKW4MHU",
+  authDomain: "zippythebionicarm.firebaseapp.com",
+  databaseURL: "https://zippythebionicarm-default-rtdb.firebaseio.com",
+  projectId: "zippythebionicarm",
+  storageBucket: "zippythebionicarm.firebasestorage.app",
+  messagingSenderId: "1000242987274",
+  appId: "1:1000242987274:web:6ab9da304f2dfd6b9d3af3"
+};
+
+let map = null;
+let userMarker = null;
+let armMarker = null;
+let accuracyCircle = null;
+let linkLine = null;
+let currentPosition = null;
+
+const $ = id => document.getElementById(id);
+
+function setLoading(percent, stage, message){
+  $('loaderBar').style.width = Math.max(0, Math.min(100, percent)) + '%';
+  $('loaderPercent').textContent = Math.round(percent) + '%';
+  $('loaderStage').textContent = stage;
+  if(message) $('loadingText').innerHTML = message;
+}
+
+function showLoadingDone(){
+  setLoading(
+    100,
+    'Location ready',
+    'Your device was located. Zippy is now shown <strong>nearby</strong>.'
+  );
+  setTimeout(() => $('loadingScreen').classList.add('hidden'), 550);
+}
+
+function showError(title, message){
+  $('errorTitle').textContent = title;
+  $('errorMessage').textContent = message;
+  $('errorCard').classList.add('show');
+  $('pageState').textContent = '● Location unavailable';
+  $('locationText').textContent = 'Location permission or GPS is unavailable';
+}
+
+function hideError(){
+  $('errorCard').classList.remove('show');
+}
+
+function readMainPageState(){
+  try{
+    return JSON.parse(localStorage.getItem('zippyCrossPageState_v1') || 'null');
+  }catch(e){
+    return null;
+  }
+}
+
+function setUserChip(user){
+  const st = readMainPageState() || {};
+  const g = st.googleUser || {};
+
+  const email =
+    (user && user.email) ||
+    g.email ||
+    st.verifiedEmail ||
+    '';
+
+  const name =
+    (user && user.displayName) ||
+    g.name ||
+    g.displayName ||
+    (email ? email.split('@')[0] : '');
+
+  const photo =
+    (user && user.photoURL) ||
+    g.picture ||
+    g.photoURL ||
+    '';
+
+  const av = $('userAvatar');
+
+  $('userName').textContent = name || 'Not signed in';
+  $('userEmail').textContent = email || 'Sign in on the main page';
+
+  av.textContent = '';
+
+  if(photo){
+    const im = new Image();
+    im.referrerPolicy = 'no-referrer';
+    im.alt = '';
+    im.src = photo;
+    im.onerror = () => {
+      av.textContent = (name || '?').charAt(0).toUpperCase();
+    };
+    av.appendChild(im);
+  }else{
+    av.textContent = (name || '?').charAt(0).toUpperCase();
+  }
+}
+
+/* Try the opener first. If there isn't one, replace this page with the
+   main page instead of creating another tab/window. */
+function goToMainPage(){
+  try{
+    if(window.opener && !window.opener.closed){
+      window.opener.focus();
+      return;
+    }
+  }catch(e){}
+
+  /* Cooperative focus message for same-origin main-page builds that
+     listen for it. It is harmless if the main page does not listen. */
+  try{
+    if('BroadcastChannel' in window){
+      const channel = new BroadcastChannel('zippy-main-page');
+      channel.postMessage({ type:'focus-main-page' });
+      channel.close();
+    }
+  }catch(e){}
+
+  /* Never create a new tab here. */
+  window.location.replace(MAIN_PAGE_URL);
+}
+
+function createMap(){
+  map = L.map('map', {
+    zoomControl: true,
+    attributionControl: true,
+    preferCanvas: true
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+}
+
+function makeUserIcon(){
+  return L.divIcon({
+    className:'',
+    html:'<div class="you-marker" aria-label="Your device"></div>',
+    iconSize:[18,18],
+    iconAnchor:[9,9]
+  });
+}
+
+function makeArmIcon(){
+  return L.divIcon({
+    className:'',
+    html:'<div class="zippy-marker" aria-label="Zippy bionic arm">✋</div>',
+    iconSize:[48,48],
+    iconAnchor:[24,24]
+  });
+}
+
+function nearbyPoint(lat, lon){
+  /* Demonstration placement: about 55–60 m from the current device.
+     The marker follows the device every time the page loads. */
+  const latOffset = 0.00040;
+  const lonOffset = 0.00031 / Math.max(0.25, Math.cos(lat * Math.PI / 180));
+  return [lat + latOffset, lon + lonOffset];
+}
+
+function initLocationOnMap(position){
+  currentPosition = {
+    lat: position.coords.latitude,
+    lon: position.coords.longitude,
+    accuracy: Number(position.coords.accuracy) || 30
+  };
+
+  if(!map) createMap();
+
+  const userLatLng = [currentPosition.lat, currentPosition.lon];
+  const armLatLng = nearbyPoint(currentPosition.lat, currentPosition.lon);
+
+  if(userMarker) userMarker.remove();
+  if(armMarker) armMarker.remove();
+  if(accuracyCircle) accuracyCircle.remove();
+  if(linkLine) linkLine.remove();
+
+  userMarker = L.marker(userLatLng, {
+    icon: makeUserIcon(),
+    keyboard: false,
+    title: 'Your current device'
+  }).addTo(map);
+
+  userMarker.bindTooltip('You', {
+    permanent:false,
+    direction:'top',
+    offset:[0,-8],
+    className:'you-tooltip'
+  });
+
+  accuracyCircle = L.circle(userLatLng, {
+    radius: Math.min(Math.max(currentPosition.accuracy, 18), 250),
+    color:'#15181b',
+    weight:1,
+    opacity:.18,
+    fillColor:'#15181b',
+    fillOpacity:.035
+  }).addTo(map);
+
+  armMarker = L.marker(armLatLng, {
+    icon: makeArmIcon(),
+    keyboard:false,
+    title:'Zippy bionic arm — nearby'
+  }).addTo(map);
+
+  armMarker.bindTooltip('Zippy arm · Nearby', {
+    permanent:false,
+    direction:'top',
+    offset:[0,-24],
+    className:'arm-tooltip'
+  });
+
+  linkLine = L.polyline([userLatLng, armLatLng], {
+    color:'#c14a2e',
+    weight:2,
+    opacity:.55,
+    dashArray:'5 8',
+    interactive:false
+  }).addTo(map);
+
+  const distance = map.distance(userLatLng, armLatLng);
+  const rounded = Math.max(1, Math.round(distance));
+
+  $('proximityState').textContent = 'Nearby';
+  $('proximityDistance').textContent = rounded + ' m from this device';
+  $('locationText').textContent =
+    currentPosition.lat.toFixed(5) + ', ' + currentPosition.lon.toFixed(5);
+
+  $('pageState').textContent = '● Location ready';
+
+  const bounds = L.latLngBounds([userLatLng, armLatLng]);
+  map.fitBounds(bounds, {
+    paddingTopLeft:[70,140],
+    paddingBottomRight:[70,170],
+    maxZoom:17
+  });
+
+  setTimeout(() => map.invalidateSize(), 80);
+  showLoadingDone();
+}
+
+function requestLocation(){
+  hideError();
+  $('loadingScreen').classList.remove('hidden');
+  $('pageState').textContent = '● Locating device';
+  $('proximityState').textContent = 'Locating';
+  $('proximityDistance').textContent = 'Waiting for location…';
+  $('locationText').textContent = 'Getting your location…';
+
+  let value = 5;
+  setLoading(5, 'Requesting GPS position', 'Requesting your current position so Zippy can be placed <strong>nearby</strong>.');
+
+  const progressTimer = setInterval(() => {
+    value = Math.min(82, value + (value < 35 ? 8 : 4));
+    if(value < 35){
+      setLoading(value, 'Getting GPS position', 'Requesting your current position so Zippy can be placed <strong>nearby</strong>.');
+    }else{
+      setLoading(value, 'Reading location', 'Your position is being prepared for the proximity view.');
+    }
+  }, 260);
+
+  if(!('geolocation' in navigator)){
+    clearInterval(progressTimer);
+    $('loadingScreen').classList.add('hidden');
+    showError(
+      'Location is not supported here.',
+      'This browser does not provide device geolocation. Open the page in a modern browser and try again.'
+    );
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    position => {
+      clearInterval(progressTimer);
+      setLoading(92, 'Position received', 'Building the map and placing Zippy <strong>nearby</strong>.');
+      try{
+        initLocationOnMap(position);
+      }catch(err){
+        console.error(err);
+        $('loadingScreen').classList.add('hidden');
+        showError(
+          'The map could not be prepared.',
+          'The location was received, but the map could not be initialized. Please try again.'
+        );
+      }
+    },
+    error => {
+      clearInterval(progressTimer);
+      $('loadingScreen').classList.add('hidden');
+
+      let title = 'We could not get this device location.';
+      let message = 'Please allow location access in your browser and try again.';
+
+      if(error && error.code === error.PERMISSION_DENIED){
+        title = 'Location permission was denied.';
+        message = 'Allow location access for this website in your browser, then press “Try again”.';
+      }else if(error && error.code === error.TIMEOUT){
+        title = 'Location took too long.';
+        message = 'The browser did not receive a GPS position in time. Press “Try again” and keep location enabled.';
+      }else if(error && error.code === error.POSITION_UNAVAILABLE){
+        title = 'Your location is temporarily unavailable.';
+        message = 'The device could not provide a usable position right now. Press “Try again”.';
+      }
+
+      showError(title, message);
+    },
+    {
+      enableHighAccuracy:true,
+      timeout:15000,
+      maximumAge:0
+    }
+  );
+}
+
+$('backBtn').addEventListener('click', goToMainPage);
+$('errorBackBtn').addEventListener('click', goToMainPage);
+$('retryBtn').addEventListener('click', requestLocation);
+
+$('recenterBtn').addEventListener('click', () => {
+  if(!map || !currentPosition) return;
+  map.setView([currentPosition.lat, currentPosition.lon], Math.max(map.getZoom(), 16), {
+    animate:true
+  });
+});
+
+window.addEventListener('resize', () => {
+  if(map) setTimeout(() => map.invalidateSize(), 80);
+});
+
+/* Firebase Auth is only used to mirror the signed-in user shown on the
+   reference Zippy page. No Realtime Database reads/writes are needed. */
+(function initAuth(){
+  try{
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+
+    auth.onAuthStateChanged(user => {
+      setUserChip(user || null);
+    });
+
+    setUserChip(auth.currentUser || null);
+  }catch(err){
+    console.warn('Firebase Auth could not initialize:', err);
+    setUserChip(null);
+  }
+})();
+
+window.addEventListener('DOMContentLoaded', () => {
+  createMap();
+  requestLocation();
+});
+</script>
+</body>
+</html>
