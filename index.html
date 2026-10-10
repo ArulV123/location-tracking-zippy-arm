@@ -6,12 +6,14 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
+<meta name="referrer" content="origin">
 <title>Zippy — Find My Arm</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
 
 <style>
 :root{
@@ -570,6 +572,7 @@ button{font:inherit;}
   border-radius:50%;
 }
 
+.leaflet-bottom.leaflet-right{margin-bottom:62px;}
 .leaflet-control-zoom{
   border:1px solid var(--line) !important;
   box-shadow:none !important;
@@ -658,6 +661,7 @@ button{font:inherit;}
     display:block;
     margin:4px 0 0;
   }
+  .leaflet-bottom.leaflet-right{margin-bottom:120px;}
   .locate-btn{
     width:100%;
     justify-content:center;
@@ -775,6 +779,8 @@ button{font:inherit;}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
 
 <script>
 /* ================================
@@ -909,17 +915,112 @@ function goToMainPage(){
   window.location.replace(MAIN_PAGE_URL);
 }
 
+/* ---------------- Basemap ----------------
+   Primary: OpenFreeMap vector tiles (no API key, no limits) drawn with
+   MapLibre GL. Vector tiles stay sharp at any zoom, so there is no
+   "map data not available" at street level.
+   Fallbacks (raster, keyless): Esri Streets, then OpenStreetMap. */
+const OFM_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+
+const RASTER_FALLBACKS = [
+  {
+    name:'Esri Streets',
+    url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    options:{
+      maxZoom:19,
+      maxNativeZoom:16,   /* beyond this Esri shows "map data not available", so we over-zoom instead */
+      attribution:'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, OpenStreetMap contributors'
+    }
+  },
+  {
+    name:'OpenStreetMap',
+    url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options:{
+      maxZoom:19,
+      attribution:'&copy; OpenStreetMap contributors',
+      referrerPolicy:'origin'
+    }
+  }
+];
+
+let baseLayer = null;
+let rasterIndex = -1;
+let rasterErrors = 0;
+let rasterLoads = 0;
+let glTimer = null;
+
+function webglAvailable(){
+  try{
+    const c = document.createElement('canvas');
+    return !!(c.getContext('webgl2') || c.getContext('webgl'));
+  }catch(e){ return false; }
+}
+
+function clearBase(){
+  if(glTimer){ clearTimeout(glTimer); glTimer = null; }
+  if(baseLayer){ try{ map.removeLayer(baseLayer); }catch(e){} baseLayer = null; }
+}
+
+function useRaster(index){
+  clearBase();
+  if(index >= RASTER_FALLBACKS.length) return;
+  rasterIndex = index;
+  rasterErrors = 0;
+  rasterLoads = 0;
+  const prov = RASTER_FALLBACKS[index];
+  console.warn('Using raster basemap:', prov.name);
+
+  baseLayer = L.tileLayer(prov.url, prov.options);
+  baseLayer.on('tileload', () => { rasterLoads++; });
+  baseLayer.on('tileerror', () => {
+    rasterErrors++;
+    if(rasterErrors >= 4 && rasterLoads === 0){
+      useRaster(index + 1);
+    }
+  });
+  baseLayer.addTo(map);
+}
+
+function useVectorBasemap(){
+  if(!(window.maplibregl && L.maplibreGL && webglAvailable())){
+    return useRaster(0);
+  }
+  try{
+    clearBase();
+    baseLayer = L.maplibreGL({
+      style: OFM_STYLE,
+      attribution:'<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> &copy; OpenMapTiles Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+    }).addTo(map);
+
+    const gl = baseLayer.getMaplibreMap();
+    let loaded = false;
+
+    gl.once('load', () => { loaded = true; if(glTimer){ clearTimeout(glTimer); glTimer = null; } });
+    gl.on('error', e => {
+      /* Style/sprite failure before first load -> fall back */
+      if(!loaded && e && e.error && !e.sourceId){ useRaster(0); }
+    });
+
+    /* If the style hasn't loaded in 8 s, fall back to raster tiles. */
+    glTimer = setTimeout(() => { if(!loaded) useRaster(0); }, 8000);
+  }catch(err){
+    console.warn('Vector basemap failed:', err);
+    useRaster(0);
+  }
+}
+
 function createMap(){
+  if(map) return;
   map = L.map('map', {
-    zoomControl: true,
+    zoomControl: false,
     attributionControl: true,
-    preferCanvas: true
+    preferCanvas: true,
+    maxZoom: 19,
+    zoomSnap: 0.5
   });
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+  L.control.zoom({ position:'bottomright' }).addTo(map);
+  useVectorBasemap();
 }
 
 function makeUserIcon(){
@@ -940,18 +1041,27 @@ function makeArmIcon(){
   });
 }
 
+/* Best-estimate point: 5-10 m from this device, in a random direction.
+   Chosen once per page load so retries don't make the marker jump. */
+let armOffset = null;
 function nearbyPoint(lat, lon){
-  /* Demonstration placement: about 55–60 m from the current device.
-     The marker follows the device every time the page loads. */
-  const latOffset = 0.00040;
-  const lonOffset = 0.00031 / Math.max(0.25, Math.cos(lat * Math.PI / 180));
-  return [lat + latOffset, lon + lonOffset];
+  if(!armOffset){
+    armOffset = {
+      dist: 5 + Math.random() * 5,              /* metres, 5-10 */
+      bearing: Math.random() * 2 * Math.PI
+    };
+  }
+  const dNorth = Math.cos(armOffset.bearing) * armOffset.dist;
+  const dEast  = Math.sin(armOffset.bearing) * armOffset.dist;
+  const dLat = dNorth / 111320;
+  const dLon = dEast / (111320 * Math.max(0.25, Math.cos(lat * Math.PI / 180)));
+  return [lat + dLat, lon + dLon];
 }
 
 /* Location reported by the arm itself (optional): the ESP32 writes
    users/{code}/location = {lat, lon, accuracy (metres)} to Firebase.
    Returns null when nothing is there, and the page falls back to a
-   clearly-labelled demo estimate near this device. */
+   a best-estimate point 5-10 m from this device. */
 const FALLBACK_RADIUS_M = 60;
 function loadEspLocation(){
   return new Promise(resolve => {
@@ -1049,20 +1159,20 @@ function initLocationOnMap(position, esp){
   const rounded = Math.max(1, Math.round(distance));
 
   $('proximityState').textContent = 'Within ~' + Math.round(armRadius) + ' m';
-  $('proximityDistance').textContent = 'Best estimate: ' + rounded + ' m from this device';
+  $('proximityDistance').textContent = 'Best estimate: ~' + rounded + ' m from this device';
   $('proximitySource').textContent = esp
-    ? 'Source: ESP32 network location'
-    : 'Source: demo estimate (no ESP32 location received)';
+    ? 'Source: arm network location'
+    : 'Source: device proximity';
   $('locationText').textContent =
     currentPosition.lat.toFixed(5) + ', ' + currentPosition.lon.toFixed(5);
 
   $('pageState').textContent = '● Location ready';
 
-  const bounds = armCircle.getBounds().extend(userLatLng);
+  const bounds = L.latLng(armLatLng).toBounds(armRadius * 2).extend(userLatLng);   // does not need the map view to be set yet
   map.fitBounds(bounds, {
     paddingTopLeft:[70,140],
     paddingBottomRight:[70,170],
-    maxZoom:17
+    maxZoom:18
   });
 
   setTimeout(() => map.invalidateSize(), 80);
