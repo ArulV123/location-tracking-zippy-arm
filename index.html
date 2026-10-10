@@ -707,7 +707,7 @@ button{font:inherit;}
         <div class="map-title-card">
           <div class="eyebrow">Device locator</div>
           <h2>Zippy is nearby.</h2>
-          <p>Your current device is shown with a dark marker. The hand marker represents the nearby Zippy bionic arm.</p>
+          <p>Dark marker = this device. The shaded circle is the area the arm is within; the hand marker is the single best-estimate point.</p>
         </div>
 
         <div class="proximity-card">
@@ -717,6 +717,7 @@ button{font:inherit;}
             <strong id="proximityState">Nearby</strong>
           </div>
           <div class="proximity-distance" id="proximityDistance">Waiting for location…</div>
+          <div class="proximity-distance" id="proximitySource"></div>
         </div>
       </div>
 
@@ -772,6 +773,7 @@ button{font:inherit;}
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
@@ -799,6 +801,7 @@ let userMarker = null;
 let armMarker = null;
 let accuracyCircle = null;
 let linkLine = null;
+let armCircle = null;
 let currentPosition = null;
 
 const $ = id => document.getElementById(id);
@@ -945,7 +948,31 @@ function nearbyPoint(lat, lon){
   return [lat + latOffset, lon + lonOffset];
 }
 
-function initLocationOnMap(position){
+/* Location reported by the arm itself (optional): the ESP32 writes
+   users/{code}/location = {lat, lon, accuracy (metres)} to Firebase.
+   Returns null when nothing is there, and the page falls back to a
+   clearly-labelled demo estimate near this device. */
+const FALLBACK_RADIUS_M = 60;
+function loadEspLocation(){
+  return new Promise(resolve => {
+    let done = false;
+    const finish = v => { if(!done){ done = true; resolve(v); } };
+    setTimeout(() => finish(null), 3000);
+    try{
+      const st = readMainPageState() || {};
+      const code = localStorage.getItem('zippyCurrentUserCode') || st.currentUserCode || '';
+      if(!code || !firebase.apps.length) return finish(null);
+      firebase.database().ref('users/' + code + '/location').once('value').then(snap => {
+        const v = snap.val() || {};
+        const lat = Number(v.lat), lon = Number(v.lon);
+        if(!isFinite(lat) || !isFinite(lon) || (lat === 0 && lon === 0)) return finish(null);
+        finish({ lat, lon, accuracy: Math.max(10, Number(v.accuracy) || 50) });
+      }).catch(() => finish(null));
+    }catch(e){ finish(null); }
+  });
+}
+
+function initLocationOnMap(position, esp){
   currentPosition = {
     lat: position.coords.latitude,
     lon: position.coords.longitude,
@@ -955,12 +982,14 @@ function initLocationOnMap(position){
   if(!map) createMap();
 
   const userLatLng = [currentPosition.lat, currentPosition.lon];
-  const armLatLng = nearbyPoint(currentPosition.lat, currentPosition.lon);
+  const armLatLng = esp ? [esp.lat, esp.lon] : nearbyPoint(currentPosition.lat, currentPosition.lon);
+  const armRadius = esp ? esp.accuracy : FALLBACK_RADIUS_M;
 
   if(userMarker) userMarker.remove();
   if(armMarker) armMarker.remove();
   if(accuracyCircle) accuracyCircle.remove();
   if(linkLine) linkLine.remove();
+  if(armCircle) armCircle.remove();
 
   userMarker = L.marker(userLatLng, {
     icon: makeUserIcon(),
@@ -984,13 +1013,24 @@ function initLocationOnMap(position){
     fillOpacity:.035
   }).addTo(map);
 
+  armCircle = L.circle(armLatLng, {
+    radius: armRadius,
+    color:'#c14a2e',
+    weight:1.5,
+    opacity:.6,
+    dashArray:'6 6',
+    fillColor:'#c14a2e',
+    fillOpacity:.08,
+    interactive:false
+  }).addTo(map);
+
   armMarker = L.marker(armLatLng, {
     icon: makeArmIcon(),
     keyboard:false,
-    title:'Zippy bionic arm — nearby'
+    title:'Zippy bionic arm — best estimate'
   }).addTo(map);
 
-  armMarker.bindTooltip('Zippy arm · Nearby', {
+  armMarker.bindTooltip('Zippy arm — best estimate', {
     permanent:false,
     direction:'top',
     offset:[0,-24],
@@ -1008,14 +1048,17 @@ function initLocationOnMap(position){
   const distance = map.distance(userLatLng, armLatLng);
   const rounded = Math.max(1, Math.round(distance));
 
-  $('proximityState').textContent = 'Nearby';
-  $('proximityDistance').textContent = rounded + ' m from this device';
+  $('proximityState').textContent = 'Within ~' + Math.round(armRadius) + ' m';
+  $('proximityDistance').textContent = 'Best estimate: ' + rounded + ' m from this device';
+  $('proximitySource').textContent = esp
+    ? 'Source: ESP32 network location'
+    : 'Source: demo estimate (no ESP32 location received)';
   $('locationText').textContent =
     currentPosition.lat.toFixed(5) + ', ' + currentPosition.lon.toFixed(5);
 
   $('pageState').textContent = '● Location ready';
 
-  const bounds = L.latLngBounds([userLatLng, armLatLng]);
+  const bounds = armCircle.getBounds().extend(userLatLng);
   map.fitBounds(bounds, {
     paddingTopLeft:[70,140],
     paddingBottomRight:[70,170],
@@ -1060,16 +1103,18 @@ function requestLocation(){
     position => {
       clearInterval(progressTimer);
       setLoading(92, 'Position received', 'Building the map and placing Zippy <strong>nearby</strong>.');
-      try{
-        initLocationOnMap(position);
-      }catch(err){
-        console.error(err);
-        $('loadingScreen').classList.add('hidden');
-        showError(
-          'The map could not be prepared.',
-          'The location was received, but the map could not be initialized. Please try again.'
-        );
-      }
+      loadEspLocation().then(esp => {
+        try{
+          initLocationOnMap(position, esp);
+        }catch(err){
+          console.error(err);
+          $('loadingScreen').classList.add('hidden');
+          showError(
+            'The map could not be prepared.',
+            'The location was received, but the map could not be initialized. Please try again.'
+          );
+        }
+      });
     },
     error => {
       clearInterval(progressTimer);
